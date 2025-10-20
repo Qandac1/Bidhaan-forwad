@@ -1,0 +1,11 @@
+{
+    "api_id": 12345678,
+    "api_hash": "your_api_hash_here",
+    "phone": "+1234567890",
+    "bot_token": null,
+    "session_string": "your_session_string_here",
+    "mongo_uri": "mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority",
+    "mongo_db_name": "forward_bot",
+    "owner_id": 123456789,
+    "log_channel": null
+}

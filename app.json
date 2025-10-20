@@ -1,0 +1,57 @@
+{
+  "name": "Telegram Auto Forward Bot",
+  "description": "Multi-user Telegram auto forward bot with MongoDB support",
+  "repository": "https://github.com/theamanchaudhary/autoFrwd",
+  "keywords": [
+    "telegram",
+    "bot",
+    "forward",
+    "auto-forward",
+    "telethon"
+  ],
+  "env": {
+    "API_ID": {
+      "description": "Your Telegram API ID from https://my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Your Telegram API Hash from https://my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather",
+      "required": true
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection URI",
+      "required": true
+    },
+    "MONGO_DB_NAME": {
+      "description": "MongoDB database name",
+      "value": "forward_bot",
+      "required": false
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram user ID (get from @userinfobot)",
+      "required": true
+    },
+    "LOG_CHANNEL": {
+      "description": "Channel ID for logging (optional)",
+      "required": false
+    }
+  },
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "free"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    },
+    {
+      "url": "https://github.com/heroku/heroku-buildpack-activestorage-preview"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Docker Compose configuration
+# Created by: @amanbotz
+
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: telegram-forward-bot
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    volumes:
+      - ./sessions:/app/sessions
+      - ./config.json:/app/config.json
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  bot-network:
+    driver: bridge

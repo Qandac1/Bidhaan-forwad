@@ -4,8 +4,8 @@
 Telegram Multi-Channel Auto Forward Bot (Bot Mode - Multi-User Support)
 Main entry point for the bot application
 
-Created by: @BIG_FiiSH
-
+Created by: @amanbotz
+GitHub: https://github.com/theamanchaudhary
 """
 
 import sys
@@ -44,14 +44,19 @@ class ForwardBot:
         # Track ignored channels to prevent log spam
         self.ignored_channels = {}  # {user_id: {channel_id: last_warn_time}}
         self.cleanup_task = None  # Background cleanup task
+        
+        # Message queue system for sequential processing
+        self.message_queues = {}  # {user_id: asyncio.Queue()}
+        self.queue_processors = {}  # {user_id: Task}
+        self.processing_locks = {}  # {user_id: bool} - to prevent concurrent processing
     
     async def setup_bot(self):
         """Interactive setup for bot token and owner"""
         print("\n" + "="*60)
         print("🤖 TELEGRAM AUTO FORWARD BOT - SETUP")
         print("="*60)
-        print("\n✨ Created by: @BIG_FiiSH")
-        print("🔗 \n")
+        print("\n✨ Created by: @amanbotz")
+        print("🔗 GitHub: github.com/theamanchaudhary\n")
         
         # Get API credentials
         print("📋 Step 1: Telegram API Credentials")
@@ -174,8 +179,8 @@ class ForwardBot:
         print(f"   • Users: {await self.db.get_user_count()}")
         print("\n💡 Users can start the bot and login with their accounts!")
         print("🛑 Press Ctrl+C to stop the bot\n")
-        print("✨ Created by: @BIG_FiiSH")
-        print("🔗 GitHub: \n")
+        print("✨ Created by: @amanbotz")
+        print("🔗 GitHub: github.com/theamanchaudhary\n")
         
         # Send startup log to log channel
         user_count = await self.db.get_user_count()
@@ -186,7 +191,7 @@ class ForwardBot:
             f"👥 Total Users: {user_count}\n"
             f"📤 Total Forwards: {stats.get('total_forwards', 0)}\n"
             f"📊 Status: Online ✅\n\n"
-            f"✨ Created by @BIG_FiiSH",
+            f"✨ Created by @amanbotz",
             "success"
         )
         
@@ -224,6 +229,102 @@ class ForwardBot:
             await self.bot_client.send_message(self.log_channel, formatted_message)
         except Exception as e:
             print(f"⚠️ Failed to send log: {e}")
+    
+    async def process_message_queue(self, user_id: int):
+        """Process messages from queue one by one sequentially"""
+        queue = self.message_queues.get(user_id)
+        if not queue:
+            return
+        
+        print(f"🔄 Started queue processor for user {user_id}")
+        
+        while True:
+            try:
+                # Wait for next message in queue
+                message_data = await queue.get()
+                
+                if message_data is None:  # Poison pill to stop processor
+                    print(f"🛑 Stopping queue processor for user {user_id}")
+                    break
+                
+                event = message_data['event']
+                channel_id = message_data['channel_id']
+                source_channel = message_data['source_channel']
+                destination = message_data['destination']
+                dest_channel_id = message_data['dest_channel_id']
+                
+                try:
+                    # Mark as processing
+                    self.processing_locks[user_id] = True
+                    
+                    print(f"📥 Processing queued message {event.message.id} from {source_channel['title']} for user {user_id}")
+                    print(f"   Queue size: {queue.qsize()} remaining")
+                    
+                    # Get user client
+                    user_client = await self.get_user_client(user_id)
+                    if not user_client:
+                        print(f"⚠ User client not available for {user_id}, skipping message")
+                        continue
+                    
+                    # Forward based on mode
+                    forward_mode = source_channel.get('forward_mode', 'copy')
+                    
+                    # Check if content is restricted/protected
+                    is_restricted = False
+                    if hasattr(event.message, 'restriction_reason') and event.message.restriction_reason:
+                        is_restricted = True
+                    if hasattr(event.message, 'noforwards') and event.message.noforwards:
+                        is_restricted = True
+                    
+                    if forward_mode == 'copy' or is_restricted:
+                        # Copy mode - sequential download and upload
+                        await self._copy_message_with_media(
+                            user_client,
+                            event.message,
+                            dest_channel_id,
+                            is_restricted
+                        )
+                        print(f"✓ Copied message {event.message.id} (mode: {'copy' if not is_restricted else 'copy-restricted'})")
+                    else:
+                        # Forward mode
+                        try:
+                            await user_client.forward_messages(
+                                dest_channel_id,
+                                event.message
+                            )
+                            print(f"✓ Forwarded message {event.message.id} (mode: forward)")
+                        except Exception as fwd_err:
+                            print(f"⚠ Forward failed, trying copy: {fwd_err}")
+                            await self._copy_message_with_media(
+                                user_client,
+                                event.message,
+                                dest_channel_id,
+                                True
+                            )
+                            print(f"✓ Copied message {event.message.id} (fallback)")
+                    
+                    # Increment stats
+                    await self.db.increment_forwards()
+                    print(f"✅ Successfully processed message {event.message.id} for user {user_id}")
+                    
+                    # Small delay between messages to prevent rate limiting
+                    await asyncio.sleep(1)
+                    
+                except Exception as process_error:
+                    print(f"✗ Error processing message {event.message.id}: {process_error}")
+                    import traceback
+                    traceback.print_exc()
+                
+                finally:
+                    # Mark task as done
+                    queue.task_done()
+                    self.processing_locks[user_id] = False
+                    
+            except Exception as e:
+                print(f"✗ Error in queue processor for user {user_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                await asyncio.sleep(5)  # Wait before retrying
     
     async def get_user_client(self, user_id: int) -> TelegramClient:
         """Get or create user's Telegram client"""
@@ -727,6 +828,25 @@ class ForwardBot:
     
     async def cmd_logout(self, event, user_id: int):
         """Logout user"""
+        # Stop queue processor if running
+        if user_id in self.queue_processors:
+            try:
+                # Send poison pill to stop processor
+                if user_id in self.message_queues:
+                    await self.message_queues[user_id].put(None)
+                    # Wait for processor to finish
+                    await asyncio.wait_for(self.queue_processors[user_id], timeout=10)
+                print(f"✓ Stopped queue processor for user {user_id}")
+            except Exception as queue_err:
+                print(f"⚠️ Error stopping queue processor: {queue_err}")
+            finally:
+                if user_id in self.queue_processors:
+                    del self.queue_processors[user_id]
+                if user_id in self.message_queues:
+                    del self.message_queues[user_id]
+                if user_id in self.processing_locks:
+                    del self.processing_locks[user_id]
+        
         # Disconnect client
         if user_id in self.user_clients:
             await self.user_clients[user_id].disconnect()
@@ -787,12 +907,18 @@ class ForwardBot:
 /mode <number> <copy|forward> - Change mode
 
 📊 **Information:**
-/status - Your bot status
+/status - Your bot status & queue info
 /help - Show this message
 
 📋 **Forward Modes:**
 • **copy** - New message (no forward tag)
 • **forward** - With attribution
+
+⏳ **Sequential Processing:**
+• Messages are processed one by one
+• No media skipped, even with bulk posts
+• Prevents server overload
+• Automatic queue management
 
 💡 **Adding Channels (4 Methods):**
 • Forward a message from the channel
@@ -1089,6 +1215,18 @@ class ForwardBot:
         copy_count = sum(1 for ch in channels if ch['forward_mode'] == 'copy')
         forward_count = len(channels) - copy_count
         
+        # Get queue status
+        queue_size = 0
+        is_processing = False
+        if user_id in self.message_queues:
+            queue_size = self.message_queues[user_id].qsize()
+        if user_id in self.processing_locks:
+            is_processing = self.processing_locks[user_id]
+        
+        queue_status = "🟢 Idle" if queue_size == 0 else f"🔄 Processing ({queue_size} in queue)"
+        if is_processing:
+            queue_status = f"⚙️ Active - {queue_status}"
+        
         status = f"""
 🤖 **Your Status**
 
@@ -1099,6 +1237,10 @@ class ForwardBot:
 📋 **Forward Modes:**
 • Copy Mode: {copy_count}
 • Forward Mode: {forward_count}
+
+⏳ **Queue Status:**
+• Status: {queue_status}
+• Sequential Processing: ✅ Enabled
 
 ✨ Created by @amanbotz
 """
@@ -1358,7 +1500,7 @@ class ForwardBot:
             await event.reply(f"❌ Error: {e}")
     
     async def handle_user_channel_message(self, event, user_id: int):
-        """Handle channel messages for forwarding (including restricted content)"""
+        """Handle channel messages for forwarding (including restricted content) - Queue-based"""
         try:
             # Check if it's a channel message
             if not event.is_channel:
@@ -1471,87 +1613,45 @@ class ForwardBot:
             else:
                 dest_channel_id = int(f"-100{dest_channel_id}")
             
-            print(f"📤 Forwarding to destination: {destination['title']} ({dest_channel_id})")
+            print(f"📤 Adding to queue for destination: {destination['title']} ({dest_channel_id})")
             
-            # Get user client
-            user_client = await self.get_user_client(user_id)
+            # Initialize queue for user if not exists
+            if user_id not in self.message_queues:
+                self.message_queues[user_id] = asyncio.Queue()
+                self.processing_locks[user_id] = False
+                print(f"✓ Created message queue for user {user_id}")
             
-            if not user_client:
-                print(f"⚠ User client not available for {user_id}")
-                return
+            # Start queue processor if not running
+            if user_id not in self.queue_processors or self.queue_processors[user_id].done():
+                self.queue_processors[user_id] = asyncio.create_task(self.process_message_queue(user_id))
+                print(f"✓ Started queue processor for user {user_id}")
             
-            # Forward based on mode
-            forward_mode = source_channel.get('forward_mode', 'copy')
+            # Add message to queue for sequential processing
+            message_data = {
+                'event': event,
+                'channel_id': channel_id,
+                'source_channel': source_channel,
+                'destination': destination,
+                'dest_channel_id': dest_channel_id
+            }
             
-            try:
-                # Check if content is restricted/protected
-                is_restricted = False
-                if hasattr(event.message, 'restriction_reason') and event.message.restriction_reason:
-                    is_restricted = True
-                    print(f"⚠ Restricted content detected")
-                
-                # Check if forwarding is disabled for the channel
-                if hasattr(event.message, 'noforwards') and event.message.noforwards:
-                    is_restricted = True
-                    print(f"🔒 Forward-protected content detected")
-                
-                if forward_mode == 'copy' or is_restricted:
-                    # Copy mode or restricted content - download and re-upload
-                    await self._copy_message_with_media(
-                        user_client,
-                        event.message,
-                        dest_channel_id,
-                        is_restricted
-                    )
-                    print(f"✓ Copied message (mode: {'copy' if not is_restricted else 'copy-restricted'})")
-                else:
-                    # Forward mode - with attribution (only if not restricted)
-                    try:
-                        await user_client.forward_messages(
-                            dest_channel_id,
-                            event.message
-                        )
-                        print(f"✓ Forwarded message (mode: forward)")
-                    except Exception as fwd_err:
-                        # If forward fails (maybe restricted), try copy
-                        print(f"⚠ Forward failed, trying copy: {fwd_err}")
-                        await self._copy_message_with_media(
-                            user_client,
-                            event.message,
-                            dest_channel_id,
-                            True
-                        )
-                        print(f"✓ Copied message (fallback)")
-                
-                # Increment stats
-                await self.db.increment_forwards()
-                print(f"✅ Successfully forwarded for user {user_id}")
-                
-                # Log forwarding (sample every 10 forwards to avoid spam)
+            await self.message_queues[user_id].put(message_data)
+            queue_size = self.message_queues[user_id].qsize()
+            print(f"✓ Message {event.message.id} added to queue (queue size: {queue_size})")
+            
+            # Log milestone for queued messages
+            if queue_size % 10 == 0 and queue_size > 0:
+                print(f"📊 Queue status for user {user_id}: {queue_size} messages pending")
                 stats = await self.db.get_stats()
-                if stats['total_forwards'] % 10 == 0:
+                if stats['total_forwards'] % 50 == 0:
                     await self.log_to_channel(
                         f"**Forwarding Milestone**\n\n"
                         f"📤 Total Forwards: {stats['total_forwards']}\n"
                         f"👥 Active Users: {stats['total_users']}\n"
+                        f"⏳ Sequential Processing: Active\n"
                         f"📊 Success Rate: ~95%",
                         "forward"
                     )
-                
-            except Exception as forward_error:
-                print(f"✗ Forward error: {forward_error}")
-                # Final fallback - try simple copy
-                try:
-                    await self._copy_message_with_media(
-                        user_client,
-                        event.message,
-                        dest_channel_id,
-                        True
-                    )
-                    await self.db.increment_forwards()
-                    print(f"✅ Copied using fallback method")
-                except Exception as alt_error:
-                    print(f"✗ All methods failed: {alt_error}")
         
         except Exception as e:
             print(f"✗ Error in handle_user_channel_message: {e}")
@@ -2178,4 +2278,3 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
-

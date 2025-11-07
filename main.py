@@ -408,9 +408,29 @@ class ForwardBot:
                     "new_user"
                 )
             
-            # Check if banned
+            # Check if banned - Block ALL interactions
             if await self.db.is_user_banned(user_id):
-                await event.reply("❌ You are banned from using this bot!")
+                ban_info = await self.db.get_ban_info(user_id)
+                reason = ban_info.get('reason', 'No reason provided') if ban_info else 'No reason provided'
+                ban_date = ban_info.get('banned_date', 'Unknown') if ban_info else 'Unknown'
+                
+                # Format ban date
+                if ban_date != 'Unknown':
+                    ban_date_str = ban_date.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    ban_date_str = 'Unknown'
+                
+                await event.reply(
+                    f"🚫 **Access Denied**\n\n"
+                    f"You have been banned from using this bot.\n\n"
+                    f"📝 **Reason:** {reason}\n"
+                    f"📅 **Banned on:** {ban_date_str}\n\n"
+                    f"⚠️ **All commands and features are disabled for your account.**\n\n"
+                    f"💬 Contact the bot owner if you believe this is a mistake."
+                )
+                
+                # Log ban attempt
+                print(f"🚫 Banned user {user_id} attempted to use bot")
                 return
             
             # Handle login flow
@@ -941,11 +961,17 @@ class ForwardBot:
             help_text += """
 👑 **Admin Commands (No Login Required):**
 /stats - Bot statistics
-/users - All users
-/broadcast - Broadcast message
-/ban <user_id> - Ban user
+/users - All users list
+/broadcast - Broadcast message to all
+/ban <user_id> [reason] - Ban user with reason
 /unban <user_id> - Unban user
-/banned - Banned users
+/banned - View all banned users
+
+🚫 **Ban System:**
+• Banned users cannot use ANY bot features
+• All commands and messages are blocked
+• User receives detailed ban notification
+• Automatic client disconnection on ban
 
 💡 Note: Admin commands work without login
 """
@@ -2120,26 +2146,135 @@ class ForwardBot:
         )
     
     async def cmd_ban(self, event, user_id: int, args):
-        """Admin: Ban user"""
+        """Admin: Ban user with reason"""
         if not args:
-            await event.reply("❌ Usage: /ban <user_id>")
+            await event.reply(
+                "❌ **Usage:** `/ban <user_id> [reason]`\n\n"
+                "**Examples:**\n"
+                "• `/ban 123456789`\n"
+                "• `/ban 123456789 Spam and abuse`\n"
+                "• `/ban 123456789 Violation of terms`"
+            )
             return
         
         try:
             ban_user_id = int(args[0])
-            await self.db.ban_user(ban_user_id, "User", "Banned by admin")
-            await event.reply(f"✅ Banned user: {ban_user_id}")
             
-            # Log ban action
-            await self.log_to_channel(
-                f"**User Banned**\n\n"
-                f"🚫 Banned User ID: `{ban_user_id}`\n"
-                f"👑 Banned by: {event.sender.username or event.sender.first_name}\n"
-                f"🆔 Admin ID: `{user_id}`",
-                "admin"
+            # Check if trying to ban owner
+            if ban_user_id == self.owner_id:
+                await event.reply("❌ **Cannot ban the bot owner!**")
+                return
+            
+            # Check if already banned
+            if await self.db.is_user_banned(ban_user_id):
+    async def cmd_unban(self, event, user_id: int, args):
+        """Admin: Unban user"""
+        if not args:
+            await event.reply(
+                "❌ **Usage:** `/unban <user_id>`\n\n"
+                "**Example:**\n"
+                "• `/unban 123456789`"
             )
-        except:
-            await event.reply("❌ Invalid user ID")
+            return
+        
+        try:
+            unban_user_id = int(args[0])
+            
+            # Check if user is actually banned
+            if not await self.db.is_user_banned(unban_user_id):
+                await event.reply(f"⚠️ **User `{unban_user_id}` is not banned!**")
+                return
+            
+            # Get ban info before unbanning
+            ban_info = await self.db.get_ban_info(unban_user_id)
+            username = ban_info.get('username', f"User {unban_user_id}") if ban_info else f"User {unban_user_id}"
+            
+            # Unban the user
+            if await self.db.unban_user(unban_user_id):
+                await event.reply(
+                    f"✅ **User Unbanned Successfully!**\n\n"
+                    f"👤 **User:** {username}\n"
+                    f"🆔 **ID:** `{unban_user_id}`\n\n"
+                    f"✅ **This user can now:**\n"
+                    f"• Use all bot commands\n"
+                    f"• Send messages to bot\n"
+                    f"• Access all bot features\n\n"
+                    f"💡 Use `/ban {unban_user_id} [reason]` to ban again if needed"
+                )
+                
+                # Notify the unbanned user
+                try:
+                    await self.bot_client.send_message(
+                        unban_user_id,
+                        f"✅ **You have been unbanned!**\n\n"
+                        f"You can now use the bot again.\n\n"
+                        f"💡 Use /start to begin using bot features."
+                    )
+                except Exception as notify_err:
+                    print(f"⚠️ Could not notify unbanned user: {notify_err}")
+                
+                # Log unban action
+                await self.log_to_channel(
+                    f"**User Unbanned**\n\n"
+                    f"✅ **Unbanned User:** {username}\n"
+                    f"🆔 **User ID:** `{unban_user_id}`\n"
+                    f"� **Unbanned by:** {event.sender.username or event.sender.first_name}\n"
+                    f"🆔 **Admin ID:** `{user_id}`",
+                    "admin"
+                )
+            else:
+                await event.reply("❌ **Failed to unban user!** Database error occurred.")
+        except ValueError:
+            await event.reply("❌ **Invalid user ID!** Please provide a numeric user ID.")
+        except Exception as e:
+            await event.reply(f"❌ **Error:** {e}")
+            import traceback
+            traceback.print_exc()d from:**\n"
+                    f"• Using any bot commands\n"
+                    f"• Sending messages to bot\n"
+                    f"• Accessing bot features\n\n"
+                    f"💡 Use `/unban {ban_user_id}` to unban"
+                )
+                
+                # Notify the banned user
+                try:
+                    await self.bot_client.send_message(
+                        ban_user_id,
+                        f"🚫 **You have been banned from this bot**\n\n"
+                        f"📝 **Reason:** {reason}\n\n"
+                        f"⚠️ All bot features are now disabled for your account.\n\n"
+                        f"💬 Contact the bot owner if you believe this is a mistake."
+                    )
+                except Exception as notify_err:
+                    print(f"⚠️ Could not notify banned user: {notify_err}")
+                
+                # Disconnect user's client if they're logged in
+                if ban_user_id in self.user_clients:
+                    try:
+                        await self.user_clients[ban_user_id].disconnect()
+                        del self.user_clients[ban_user_id]
+                        print(f"✓ Disconnected banned user's client: {ban_user_id}")
+                    except Exception as disconnect_err:
+                        print(f"⚠️ Could not disconnect user client: {disconnect_err}")
+                
+                # Log ban action
+                await self.log_to_channel(
+                    f"**User Banned**\n\n"
+                    f"🚫 **Banned User:** {username}\n"
+                    f"🆔 **User ID:** `{ban_user_id}`\n"
+                    f"📝 **Reason:** {reason}\n"
+                    f"👑 **Banned by:** {event.sender.username or event.sender.first_name}\n"
+                    f"🆔 **Admin ID:** `{user_id}`",
+                    "admin"
+                )
+            else:
+                await event.reply("❌ **Failed to ban user!** Database error occurred.")
+        except ValueError:
+            await event.reply("❌ **Invalid user ID!** Please provide a numeric user ID.")
+        except Exception as e:
+            await event.reply(f"❌ **Error:** {e}")
+            import traceback
+            traceback.print_exc()
     
     async def cmd_unban(self, event, user_id: int, args):
         """Admin: Unban user"""
@@ -2164,16 +2299,48 @@ class ForwardBot:
             await event.reply("❌ Invalid user ID")
     
     async def cmd_banned(self, event, user_id: int):
-        """Admin: List banned"""
+        """Admin: List all banned users with details"""
         banned = await self.db.get_banned_users()
         
         if not banned:
-            await event.reply("📋 No banned users")
+            await event.reply(
+                "📋 **No Banned Users**\n\n"
+                "✅ All users are currently allowed to use the bot.\n\n"
+                "💡 Use `/ban <user_id> [reason]` to ban users."
+            )
             return
         
+        # Build detailed message
         message = f"🚫 **Banned Users ({len(banned)}):**\n\n"
-        for user in banned:
-            message += f"• {user['username']} (`{user['user_id']}`)\n"
+        
+        for i, user in enumerate(banned, 1):
+            username = user.get('username', 'Unknown')
+            user_id_str = user.get('user_id', 'Unknown')
+            reason = user.get('reason', 'No reason')
+            ban_date = user.get('banned_date', None)
+            
+            # Format ban date
+            if ban_date:
+                try:
+                    ban_date_str = ban_date.strftime('%Y-%m-%d')
+                except:
+                    ban_date_str = 'Unknown'
+            else:
+                ban_date_str = 'Unknown'
+            
+            message += f"**{i}.** {username}\n"
+            message += f"   🆔 ID: `{user_id_str}`\n"
+            message += f"   📝 Reason: {reason}\n"
+            message += f"   📅 Banned: {ban_date_str}\n\n"
+            
+            # Prevent message from being too long
+            if len(message) > 3500:
+                message += f"\n... and {len(banned) - i} more users\n\n"
+                message += "💡 **Note:** Message truncated due to length"
+                break
+        
+        message += f"\n💡 Use `/unban <user_id>` to unban\n"
+        message += f"💡 Use `/ban <user_id> [reason]` to ban more users"
         
         await event.reply(message)
     

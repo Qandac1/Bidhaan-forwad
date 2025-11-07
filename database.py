@@ -129,6 +129,13 @@ class Database:
         except:
             return []
     
+    async def get_ban_info(self, user_id: int) -> Optional[Dict]:
+        """Get ban information for a specific user"""
+        try:
+            return await self.banned_users.find_one({'user_id': str(user_id)})
+        except:
+            return None
+    
     # ============ CHANNEL MANAGEMENT ============
     
     async def add_source_channel(self, channel_id: str, title: str, forward_mode: str = 'copy') -> bool:

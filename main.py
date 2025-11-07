@@ -252,12 +252,14 @@ class ForwardBot:
                 source_channel = message_data['source_channel']
                 destination = message_data['destination']
                 dest_channel_id = message_data['dest_channel_id']
+                message_id = message_data['message_id']
+                message_date = message_data['message_date']
                 
                 try:
                     # Mark as processing
                     self.processing_locks[user_id] = True
                     
-                    print(f"📥 Processing queued message {event.message.id} from {source_channel['title']} for user {user_id}")
+                    print(f"📥 Processing queued message {message_id} (date: {message_date}) from {source_channel['title']} for user {user_id}")
                     print(f"   Queue size: {queue.qsize()} remaining")
                     
                     # Get user client
@@ -284,7 +286,7 @@ class ForwardBot:
                             dest_channel_id,
                             is_restricted
                         )
-                        print(f"✓ Copied message {event.message.id} (mode: {'copy' if not is_restricted else 'copy-restricted'})")
+                        print(f"✓ Copied message {message_id} (date: {message_date}) (mode: {'copy' if not is_restricted else 'copy-restricted'})")
                     else:
                         # Forward mode
                         try:
@@ -292,7 +294,7 @@ class ForwardBot:
                                 dest_channel_id,
                                 event.message
                             )
-                            print(f"✓ Forwarded message {event.message.id} (mode: forward)")
+                            print(f"✓ Forwarded message {message_id} (date: {message_date}) (mode: forward)")
                         except Exception as fwd_err:
                             print(f"⚠ Forward failed, trying copy: {fwd_err}")
                             await self._copy_message_with_media(
@@ -301,17 +303,17 @@ class ForwardBot:
                                 dest_channel_id,
                                 True
                             )
-                            print(f"✓ Copied message {event.message.id} (fallback)")
+                            print(f"✓ Copied message {message_id} (date: {message_date}) (fallback)")
                     
                     # Increment stats
                     await self.db.increment_forwards()
-                    print(f"✅ Successfully processed message {event.message.id} for user {user_id}")
+                    print(f"✅ Successfully processed message {message_id} (date: {message_date}) for user {user_id}")
                     
-                    # Small delay between messages to prevent rate limiting
+                    # Small delay between messages to prevent rate limiting and maintain order
                     await asyncio.sleep(1)
                     
                 except Exception as process_error:
-                    print(f"✗ Error processing message {event.message.id}: {process_error}")
+                    print(f"✗ Error processing message {message_id}: {process_error}")
                     import traceback
                     traceback.print_exc()
                 
@@ -903,7 +905,7 @@ class ForwardBot:
 /setdest - Set destination channel (public/private)
 /list - Show your channels
 /remove <number> - Remove channel
-/cleanup - Leave all non-source channels 🧹
+/cleanup - Leave non-source/destination channels 🧹
 /mode <number> <copy|forward> - Change mode
 
 📊 **Information:**
@@ -915,10 +917,17 @@ class ForwardBot:
 • **forward** - With attribution
 
 ⏳ **Sequential Processing:**
-• Messages are processed one by one
+• Messages are processed one by one in order
+• Maintains chronological sequence from source
 • No media skipped, even with bulk posts
 • Prevents server overload
 • Automatic queue management
+
+🧹 **Cleanup Command:**
+• Leaves all channels EXCEPT source & destination
+• Safe - keeps your configured channels
+• Use when you joined too many channels
+• Manual control - no auto-leaving
 
 💡 **Adding Channels (4 Methods):**
 • Forward a message from the channel
@@ -1093,7 +1102,7 @@ class ForwardBot:
             await event.reply("❌ Invalid number!")
     
     async def cmd_cleanup(self, event, user_id: int):
-        """Leave all channels not in source list"""
+        """Leave all channels not in source list or destination"""
         await event.reply("🔄 **Starting cleanup...**\n\nChecking all joined channels...")
         
         try:
@@ -1102,15 +1111,39 @@ class ForwardBot:
                 await event.reply("❌ Please login first with /login")
                 return
             
-            # Get user's source channels
+            # Get user's source channels and destination
             channels = await self.db.get_user_channels(user_id)
-            source_channel_ids = set()
+            destination = await self.db.get_user_destination(user_id)
             
+            # Build set of channel IDs to KEEP (source + destination)
+            keep_channel_ids = set()
+            
+            # Add all source channels (with normalized IDs)
             for ch in channels:
                 ch_id = str(ch['channel_id'])
-                if not ch_id.startswith('-'):
-                    ch_id = f"-100{ch_id}"
-                source_channel_ids.add(ch_id)
+                # Normalize to -100 format
+                if ch_id.startswith('-100'):
+                    keep_channel_ids.add(ch_id)
+                    keep_channel_ids.add(ch_id[4:])  # Also add without -100
+                elif ch_id.startswith('-'):
+                    keep_channel_ids.add(ch_id)
+                else:
+                    keep_channel_ids.add(f"-100{ch_id}")
+                    keep_channel_ids.add(ch_id)
+            
+            # Add destination channel (with normalized IDs)
+            if destination:
+                dest_id = str(destination['channel_id'])
+                if dest_id.startswith('-100'):
+                    keep_channel_ids.add(dest_id)
+                    keep_channel_ids.add(dest_id[4:])  # Also add without -100
+                elif dest_id.startswith('-'):
+                    keep_channel_ids.add(dest_id)
+                else:
+                    keep_channel_ids.add(f"-100{dest_id}")
+                    keep_channel_ids.add(dest_id)
+            
+            print(f"📋 Channels to KEEP: {keep_channel_ids}")
             
             # Get all dialogs (chats/channels user is in)
             dialogs = await user_client.get_dialogs()
@@ -1126,36 +1159,40 @@ class ForwardBot:
                 if not dialog.is_channel:
                     continue
                 
-                # Get channel ID
-                channel_id = str(dialog.id)
-                if not channel_id.startswith('-'):
-                    channel_id = f"-100{dialog.id}"
+                # Get channel ID in multiple formats
+                channel_id_raw = str(dialog.id)
+                channel_id_with_100 = f"-100{dialog.id}" if not channel_id_raw.startswith('-') else channel_id_raw
                 
-                # Check if it's in source list or is destination
-                destination = await self.db.get_user_destination(user_id)
-                dest_id = destination['channel_id'] if destination else None
-                if dest_id and not dest_id.startswith('-'):
-                    dest_id = f"-100{dest_id}"
+                # Check if it's in the KEEP list (check both formats)
+                should_keep = (
+                    channel_id_raw in keep_channel_ids or 
+                    channel_id_with_100 in keep_channel_ids or
+                    str(abs(dialog.id)) in keep_channel_ids
+                )
                 
-                # Skip if it's a source or destination
-                if channel_id in source_channel_ids or channel_id == dest_id:
+                if should_keep:
                     kept_count += 1
+                    print(f"✓ Keeping: {dialog.title} ({channel_id_with_100})")
                     continue
                 
-                # Not in source list - leave it
+                # Not in keep list - leave it
                 try:
                     await user_client(functions.channels.LeaveChannelRequest(dialog.entity))
                     left_count += 1
-                    print(f"✓ Left: {dialog.title} ({channel_id})")
+                    print(f"✓ Left: {dialog.title} ({channel_id_with_100})")
                     
                     # Update status every 5 channels
                     if left_count % 5 == 0:
                         await status_msg.edit(
                             f"🔄 **Cleanup in progress...**\n\n"
                             f"✅ Left: {left_count}\n"
-                            f"⏭️ Kept: {kept_count}\n"
+                            f"⏭️ Kept: {kept_count} (source/destination)\n"
                             f"❌ Failed: {failed_count}"
                         )
+                    
+                    # Small delay to prevent rate limiting
+                    await asyncio.sleep(0.5)
+                    
                 except Exception as leave_err:
                     failed_count += 1
                     print(f"✗ Failed to leave {dialog.title}: {leave_err}")
@@ -1167,6 +1204,7 @@ class ForwardBot:
                 f"✅ Left: {left_count} channels\n"
                 f"⏭️ Kept: {kept_count} channels (source/destination)\n"
                 f"❌ Failed: {failed_count} channels\n\n"
+                f"💡 Your source channels and destination are safe!\n"
                 f"You will no longer receive spam from removed channels."
             )
             
@@ -1530,7 +1568,8 @@ class ForwardBot:
                     break
             
             if not source_channel:
-                # Channel not in source list - handle smartly to prevent spam
+                # Channel not in source list - only log, DO NOT AUTO-LEAVE
+                # Auto-leaving can be dangerous and is now disabled
                 
                 # Initialize ignored channels dict for user if not exists
                 if user_id not in self.ignored_channels:
@@ -1548,54 +1587,11 @@ class ForwardBot:
                         return  # Silently ignore
                 
                 # Log warning (first time or after 5 minutes)
-                print(f"⚠ Channel {channel_id} not in user's source list - attempting cleanup")
+                print(f"⚠ Channel {channel_id} not in user's source list - ignoring message")
                 self.ignored_channels[user_id][channel_id] = current_time
                 
-                # Try to leave the channel to stop receiving messages
-                try:
-                    user_client = await self.get_user_client(user_id)
-                    if user_client:
-                        # Get channel entity
-                        try:
-                            channel = await user_client.get_entity(int(channel_id))
-                            channel_name = getattr(channel, 'title', channel_id)
-                            
-                            # Leave the channel
-                            await user_client(functions.channels.LeaveChannelRequest(channel))
-                            print(f"✓ Auto-left channel: {channel_name} ({channel_id})")
-                            
-                            # Log to user
-                            try:
-                                await self.bot_client.send_message(
-                                    user_id,
-                                    f"🔄 **Auto-Cleanup**\n\n"
-                                    f"Left channel: {channel_name}\n"
-                                    f"Reason: Not in your source list\n\n"
-                                    f"This prevents unwanted message spam."
-                                )
-                            except:
-                                pass
-                            
-                            # Log to channel
-                            await self.log_to_channel(
-                                f"**Auto-Cleanup: Channel Left**\n\n"
-                                f"🆔 User ID: `{user_id}`\n"
-                                f"📢 Channel: {channel_name}\n"
-                                f"🆔 Channel ID: `{channel_id}`\n"
-                                f"📝 Reason: Channel removed from source list",
-                                "auto_cleanup"
-                            )
-                            
-                            # Remove from ignored list since we left
-                            if channel_id in self.ignored_channels[user_id]:
-                                del self.ignored_channels[user_id][channel_id]
-                                
-                        except Exception as entity_err:
-                            # Channel might be deleted or inaccessible
-                            print(f"   Channel no longer accessible: {entity_err}")
-                except Exception as cleanup_err:
-                    print(f"   ⚠ Cleanup failed: {cleanup_err}")
-                
+                # Just ignore the message - DO NOT AUTO-LEAVE
+                # User can manually use /cleanup command if needed
                 return
             
             # Get destination
@@ -1632,12 +1628,14 @@ class ForwardBot:
                 'channel_id': channel_id,
                 'source_channel': source_channel,
                 'destination': destination,
-                'dest_channel_id': dest_channel_id
+                'dest_channel_id': dest_channel_id,
+                'message_id': event.message.id,
+                'message_date': event.message.date
             }
             
             await self.message_queues[user_id].put(message_data)
             queue_size = self.message_queues[user_id].qsize()
-            print(f"✓ Message {event.message.id} added to queue (queue size: {queue_size})")
+            print(f"✓ Message {event.message.id} (date: {event.message.date}) added to queue (queue size: {queue_size})")
             
             # Log milestone for queued messages
             if queue_size % 10 == 0 and queue_size > 0:

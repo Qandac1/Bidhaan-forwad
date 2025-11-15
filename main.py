@@ -179,8 +179,8 @@ class ForwardBot:
         print(f"   • Users: {await self.db.get_user_count()}")
         print("\n💡 Users can start the bot and login with their accounts!")
         print("🛑 Press Ctrl+C to stop the bot\n")
-        print("✨ Created by: @amanbotz")
-        print("🔗 GitHub: github.com/theamanchaudhary\n")
+        print("✨ Created by: @BIG_FiiSH")
+        print("🔗 GitHub: \n")
         
         # Send startup log to log channel
         user_count = await self.db.get_user_count()
@@ -191,7 +191,7 @@ class ForwardBot:
             f"👥 Total Users: {user_count}\n"
             f"📤 Total Forwards: {stats.get('total_forwards', 0)}\n"
             f"📊 Status: Online ✅\n\n"
-            f"✨ Created by @amanbotz",
+            f"✨ Created by @BIG_FiiSH",
             "success"
         )
         
@@ -2443,5 +2443,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
+
 
 

@@ -4,8 +4,8 @@
 Telegram Multi-Channel Auto Forward Bot (Bot Mode - Multi-User Support)
 Main entry point for the bot application
 
-Created by: @amanbotz
-GitHub: https://github.com/theamanchaudhary
+Created by: @BIG_FiiSH
+
 """
 
 import sys
@@ -2443,3 +2443,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
+

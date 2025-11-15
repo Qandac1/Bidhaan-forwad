@@ -2,8 +2,8 @@
 # Heroku startup script
 
 echo "🚀 Starting Telegram Auto Forward Bot on Heroku..."
-echo "✨ Created by: @amanbotz"
-echo "🔗 GitHub: github.com/theamanchaudhary"
+echo "✨ Created by: @BIG_FiiSH"
+echo "🔗 "
 
 # Check if all required environment variables are set
 if [ -z "$API_ID" ] || [ -z "$API_HASH" ] || [ -z "$BOT_TOKEN" ] || [ -z "$MONGO_URI" ] || [ -z "$OWNER_ID" ]; then

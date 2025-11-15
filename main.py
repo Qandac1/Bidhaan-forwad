@@ -55,8 +55,8 @@ class ForwardBot:
         print("\n" + "="*60)
         print("🤖 TELEGRAM AUTO FORWARD BOT - SETUP")
         print("="*60)
-        print("\n✨ Created by: @amanbotz")
-        print("🔗 GitHub: github.com/theamanchaudhary\n")
+        print("\n✨ Created by: @BIG_FiiSH")
+        print("🔗 GitHub: \n")
         
         # Get API credentials
         print("📋 Step 1: Telegram API Credentials")
@@ -2443,4 +2443,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
+
 

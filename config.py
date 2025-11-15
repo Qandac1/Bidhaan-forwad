@@ -1,8 +1,8 @@
 # config.py
 """
 Configuration Manager for Telegram Forward Bot
-Created by: @amanbotz
-GitHub: https://github.com/theamanchaudhary
+Created by: @BIG_FiiSH
+GitHub: 
 """
 
 import json
@@ -19,7 +19,7 @@ class BotConfig:
     
     # MongoDB Configuration
     mongo_uri: str = os.getenv('MONGO_URI', 'mongodb+srv://BIGFIISH:iFyAm2DZqEzo76VW@cluster0.z6bhz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
-    mongo_db_name: str = os.getenv('MONGO_DB_NAME', 'forward_bot')
+    mongo_db_name: str = os.getenv('MONGO_DB_NAME', 'Bidhaanforwardbot')
     
     # Bot Settings
     owner_id: int = int(os.getenv('OWNER_ID', '6169808990'))

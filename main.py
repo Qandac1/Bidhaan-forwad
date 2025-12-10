@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-# main.py
-"""
-Telegram Multi-Channel Auto Forward Bot (Bot Mode - Multi-User Support)
-Main entry point for the bot application
-
-Created by: @amanbotz
-GitHub: https://github.com/theamanchaudhary
-"""
-
 import sys
 import asyncio
 from functools import partial
@@ -1708,7 +1698,7 @@ class ForwardBot:
                     # Send initial progress message to destination
                     try:
                         progress_msg = await client.send_message(
-                            destination,
+                            self.log_channel,
                             "⏳ **Processing media...**\n📥 Starting download..."
                         )
                     except:
@@ -2389,3 +2379,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
+

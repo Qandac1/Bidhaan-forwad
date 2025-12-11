@@ -274,7 +274,8 @@ class ForwardBot:
                             user_client,
                             event.message,
                             dest_channel_id,
-                            is_restricted
+                            is_restricted,
+                            user_id
                         )
                         print(f"✓ Copied message {message_id} (date: {message_date}) (mode: {'copy' if not is_restricted else 'copy-restricted'})")
                     else:
@@ -291,7 +292,8 @@ class ForwardBot:
                                 user_client,
                                 event.message,
                                 dest_channel_id,
-                                True
+                                True,
+                                user_id
                             )
                             print(f"✓ Copied message {message_id} (date: {message_date}) (fallback)")
                     
@@ -1672,7 +1674,7 @@ class ForwardBot:
             import traceback
             traceback.print_exc()
     
-    async def _copy_message_with_media(self, client, message, destination, force_download=False):
+    async def _copy_message_with_media(self, client, message, destination, force_download=False, user_id):
         """
         Copy message with media (handles restricted/protected content)
         Downloads media and re-uploads to bypass restrictions
@@ -1698,7 +1700,7 @@ class ForwardBot:
                     # Send initial progress message to destination
                     try:
                         progress_msg = await client.send_message(
-                            self.log_channel,
+                            user_id,
                             "⏳ **Processing media...**\n📥 Starting download..."
                         )
                     except:
@@ -2379,4 +2381,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
+
 

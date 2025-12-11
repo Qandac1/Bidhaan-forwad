@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 - user_id
+#!/usr/bin/env python3 \ user_id
 
 import sys
 import asyncio
@@ -2067,6 +2067,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\nFatal error: {e}")
         sys.exit(1)
+
 
 
 
